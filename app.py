@@ -1,0 +1,435 @@
+import os
+from dotenv import load_dotenv
+from flask import Flask, request, abort
+import json
+import subprocess
+
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import (
+    MessageEvent,
+    TextMessage,
+    TextSendMessage,
+    QuickReply,
+    QuickReplyButton,
+    MessageAction
+)
+
+from utils.stock_price_fetcher import StockPriceFetcher
+from utils.technical_analyzer import TechnicalAnalyzer
+
+load_dotenv()
+app = Flask(__name__)
+
+# =========================
+# LINE Bot 設定
+# =========================
+
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+price_fetcher = StockPriceFetcher()
+technical_analyzer = TechnicalAnalyzer()
+
+
+def get_main_menu():
+
+    return QuickReply(
+        items=[
+            QuickReplyButton(
+                action=MessageAction(
+                    label="今日推薦",
+                    text="今日推薦"
+                )
+            ),
+            QuickReplyButton(
+                action=MessageAction(
+                    label="即時推薦",
+                    text="即時推薦"
+                )
+            ),
+            QuickReplyButton(
+                action=MessageAction(
+                    label="分數區間",
+                    text="分數區間"
+                )
+            )
+        ]
+    )
+
+
+def translate_sentiment(sentiment):
+
+    mapping = {
+        "positive": "正面",
+        "neutral": "中性",
+        "negative": "負面"
+    }
+
+    return mapping.get(sentiment, sentiment)
+
+
+def build_technical_message(stock_id):
+
+    price_info = price_fetcher.get_stock_price(stock_id)
+    technical_info = technical_analyzer.analyze(stock_id)
+
+    if price_info is None or technical_info is None:
+        return f"找不到股票代號 {stock_id} 的股價或技術資料"
+
+    lines = []
+
+    lines.append(f"個股技術分析：{stock_id}")
+    lines.append("")
+
+    technical_score = 0
+
+    latest_close = technical_info["latest_close"]
+    ma5 = technical_info["ma5"]
+    ma20 = technical_info["ma20"]
+    volume_ratio = technical_info["volume_ratio"]
+    rsi = technical_info["rsi"]
+
+    technical_reasons = []
+
+    if latest_close > ma5:
+        technical_score += 1
+        technical_reasons.append("- 股價站上 MA5，短線偏強")
+    else:
+        technical_reasons.append("- 股價未站上 MA5，短線偏弱")
+
+    if latest_close > ma20:
+        technical_score += 1
+        technical_reasons.append("- 股價站上 MA20，中期趨勢偏多")
+    else:
+        technical_reasons.append("- 股價未站上 MA20，中期趨勢保守")
+
+    if volume_ratio >= 1.5:
+        technical_score += 1
+        technical_reasons.append("- 成交量明顯放大，市場關注度提高")
+    else:
+        technical_reasons.append("- 成交量尚未明顯放大")
+
+    if rsi is not None:
+        if rsi > 70:
+            technical_score -= 1
+            technical_reasons.append("- RSI 偏高，短線有過熱風險")
+        elif rsi < 30:
+            technical_score += 2
+            technical_reasons.append("- RSI 偏低，可能有低檔反彈機會")
+        else:
+            technical_score += 1
+            technical_reasons.append("- RSI 位於中性區間")
+    else:
+        technical_reasons.append("- RSI 資料不足，暫無法判斷")
+
+    if technical_score >= 4:
+        technical_level = "強勢"
+    elif technical_score == 3:
+        technical_level = "偏強"
+    elif technical_score == 2:
+        technical_level = "平穩"
+    elif technical_score == 1:
+        technical_level = "偏弱"
+    else:
+        technical_level = "風險"
+
+    lines.append(f"技術推薦分數：{technical_score}")
+    lines.append(f"技術推薦等級：{technical_level}")
+    lines.append("")
+    lines.append(f"收盤價：{price_info['close_price']}")
+    lines.append(f"漲跌幅：{price_info['change_percent']}%")
+    lines.append(f"成交量：{price_info['volume']}")
+    lines.append("")
+    lines.append(f"MA5：{technical_info['ma5']}")
+    lines.append(f"MA20：{technical_info['ma20']}")
+    lines.append(f"量能倍率：{technical_info['volume_ratio']}")
+    lines.append(f"RSI：{technical_info['rsi']}")
+    lines.append("")
+    lines.append("技術面判斷：")
+    lines.extend(technical_reasons)
+
+    return "\n".join(lines)
+
+
+def build_score_range_message():
+
+    return (
+        "分數區間說明\n\n"
+        "新聞推薦分數：\n"
+        "7分以上：強烈推薦\n"
+        "4~6分：值得關注\n"
+        "1~3分：觀察\n"
+        "0分以下：不推薦\n\n"
+        "技術推薦分數：\n"
+        "4分以上：強勢\n"
+        "3分：偏強\n"
+        "2分：平穩\n"
+        "1分：偏弱\n"
+        "0分以下：風險"
+    )
+
+
+@app.route("/")
+def home():
+    return "Stock News Line Bot Running!"
+
+
+@app.route("/today")
+def today_recommendation():
+
+    try:
+        with open(
+            "data/today_top_recommendation.txt",
+            "r",
+            encoding="utf-8"
+        ) as f:
+            message = f.read()
+
+    except FileNotFoundError:
+        message = "目前尚未產生今日推薦結果，請先執行 python main.py"
+
+    return message.replace("\n", "<br>")
+
+
+@app.route("/stock/<stock_id>")
+def stock_detail(stock_id):
+
+    try:
+        with open(
+            "data/recommendation_results.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+            stocks = json.load(f)
+
+    except FileNotFoundError:
+        return "目前尚未產生推薦結果，請先執行 python main.py"
+
+    for stock in stocks:
+        if stock.get("stock_id") == stock_id:
+
+            lines = [
+                f"{stock.get('stock_name')}（{stock.get('stock_id')}）",
+                f"推薦分數：{stock.get('recommend_score')}",
+                f"推薦等級：{stock.get('recommend_level')}",
+                f"新聞數量：{stock.get('news_count')}",
+                "",
+                "推薦依據："
+            ]
+
+            for reason in stock.get("recommend_reasons", []):
+                lines.append(f"- {reason}")
+
+            lines.append("")
+            lines.append("相關新聞：")
+
+            for news in stock.get("news_reasons", [])[:3]:
+                lines.append(
+                    f"- [{translate_sentiment(news.get('sentiment'))}] {news.get('title')}"
+                )
+
+            return "<br>".join(lines)
+
+    return f"找不到股票代號：{stock_id}"
+
+
+@app.route("/rerun")
+def rerun_analysis():
+
+    print("收到 /rerun 請求，開始重新執行 main.py")
+
+    try:
+        subprocess.run(
+            ["venv\\Scripts\\python.exe", "main.py"],
+            check=True
+        )
+
+        print("main.py 執行完成")
+
+        return "分析已重新執行完成，請回到 /today 查看最新推薦"
+
+    except subprocess.CalledProcessError as e:
+        print("main.py 執行失敗")
+        print(e)
+
+        return "重新執行分析失敗，請檢查終端機錯誤訊息"
+
+
+@app.route("/callback", methods=["POST"])
+def callback():
+
+    signature = request.headers["X-Line-Signature"]
+    body = request.get_data(as_text=True)
+
+    try:
+        handler.handle(body, signature)
+
+    except InvalidSignatureError:
+        abort(400)
+
+    return "OK"
+
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+
+    user_message = event.message.text.strip()
+
+    print(f"使用者 ID：{event.source.user_id}")
+
+    if user_message == "今日推薦":
+
+        try:
+            with open(
+                "data/today_top_recommendation.txt",
+                "r",
+                encoding="utf-8"
+            ) as f:
+                message = f.read()
+
+        except FileNotFoundError:
+            message = "目前尚未產生今日推薦結果，請先執行 python main.py"
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text=message,
+                quick_reply=get_main_menu()
+            )
+        )
+
+    elif user_message == "即時推薦":
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="正在進行即時推薦分析，請稍候...")
+        )
+
+        try:
+            subprocess.run(
+                ["venv\\Scripts\\python.exe", "main.py"],
+                check=True
+            )
+
+            with open(
+                "data/today_top_recommendation.txt",
+                "r",
+                encoding="utf-8"
+            ) as f:
+                latest_message = f.read()
+
+            line_bot_api.push_message(
+                event.source.user_id,
+                TextSendMessage(
+                    text="即時推薦分析完成\n\n" + latest_message,
+                    quick_reply=get_main_menu()
+                )
+            )
+
+        except Exception as e:
+            line_bot_api.push_message(
+                event.source.user_id,
+                TextSendMessage(
+                    text="即時推薦分析失敗\n" + str(e)
+                )
+            )
+
+    elif user_message == "分數區間":
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text=build_score_range_message(),
+                quick_reply=get_main_menu()
+            )
+        )
+
+    elif user_message.isdigit() and len(user_message) == 4:
+
+        stock_id = user_message.strip()
+
+        try:
+            with open(
+                "data/recommendation_results.json",
+                "r",
+                encoding="utf-8"
+            ) as f:
+                stocks = json.load(f)
+
+        except FileNotFoundError:
+            stocks = []
+
+        found_stock = None
+
+        for stock in stocks:
+            if stock.get("stock_id") == stock_id:
+                found_stock = stock
+                break
+
+        if found_stock is not None:
+
+            lines = [
+                f"{found_stock.get('stock_name')}（{found_stock.get('stock_id')}）",
+                f"推薦分數：{found_stock.get('recommend_score')}",
+                f"推薦等級：{found_stock.get('recommend_level')}",
+                f"新聞數量：{found_stock.get('news_count')}",
+                "",
+                "推薦依據："
+            ]
+
+            for reason in found_stock.get("recommend_reasons", []):
+                lines.append(f"- {reason}")
+
+            lines.append("")
+            lines.append("相關新聞：")
+
+            for news in found_stock.get("news_reasons", [])[:3]:
+                lines.append(
+                    f"- [{translate_sentiment(news.get('sentiment'))}] {news.get('title')}"
+                )
+
+            lines.append("")
+            lines.append("技術面補充：")
+            lines.append(build_technical_message(stock_id))
+
+            message = "\n".join(lines)
+
+        else:
+
+            message = (
+                f"本次推薦結果中沒有找到 {stock_id} 的相關新聞。\n\n"
+                "以下提供技術面分析：\n\n"
+                + build_technical_message(stock_id)
+            )
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text=message,
+                quick_reply=get_main_menu()
+            )
+        )
+
+    else:
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                text=
+                "請選擇功能，或直接輸入股票代號，例如：\n"
+                "2330\n\n"
+                "可使用功能：\n"
+                "今日推薦\n"
+                "即時推薦\n"
+                "分數區間",
+                quick_reply=get_main_menu()
+            )
+        )
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

@@ -1,0 +1,12 @@
+requests
+pandas
+numpy
+beautifulsoup4
+lxml
+yfinance
+transformers
+torch
+scikit-learn
+line-bot-sdk
+flask
+python-dotenv
