@@ -245,7 +245,7 @@ def rerun_analysis():
 
     try:
         subprocess.run(
-            [sys.executable, "main.py"],
+            [sys.executable, "-u", "main.py"],
             check=True
         )
 
@@ -312,7 +312,7 @@ def handle_message(event):
 
         try:
             subprocess.run(
-                [sys.executable, "main.py"],
+                [sys.executable, "-u", "main.py"],
                 check=True
             )
 
