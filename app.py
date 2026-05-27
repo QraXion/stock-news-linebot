@@ -421,6 +421,7 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage(
                 text=
+                "系統已啟動完成。\n\n"
                 "請選擇功能，或直接輸入股票代號，例如：\n"
                 "2330\n\n"
                 "可使用功能：\n"
