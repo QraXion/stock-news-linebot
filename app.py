@@ -208,7 +208,7 @@ def stock_detail(stock_id):
             stocks = json.load(f)
 
     except FileNotFoundError:
-        return "目前尚未產生推薦結果，請先執行 python main.py"
+        return "目前尚未產生推薦結果，請先使用「即時推薦」功能"
 
     for stock in stocks:
         if stock.get("stock_id") == stock_id:
@@ -293,7 +293,7 @@ def handle_message(event):
                 message = f.read()
 
         except FileNotFoundError:
-            message = "目前尚未產生今日推薦結果，請先執行 python main.py"
+            message = "目前尚未產生今日推薦結果，請先使用「即時推薦」功能"
 
         line_bot_api.reply_message(
             event.reply_token,
