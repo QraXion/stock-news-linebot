@@ -191,7 +191,7 @@ def today_recommendation():
             message = f.read()
 
     except FileNotFoundError:
-        message = "目前尚未產生今日推薦結果，請先執行 python main.py"
+        message = "目前尚未產生今日推薦結果，請先使用「即時推薦」功能"
 
     return message.replace("\n", "<br>")
 
