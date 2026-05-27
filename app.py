@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from flask import Flask, request, abort
 import json
 import subprocess
+import sys
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -244,7 +245,7 @@ def rerun_analysis():
 
     try:
         subprocess.run(
-            ["venv\\Scripts\\python.exe", "main.py"],
+            [sys.executable, "main.py"],
             check=True
         )
 
@@ -311,7 +312,7 @@ def handle_message(event):
 
         try:
             subprocess.run(
-                ["venv\\Scripts\\python.exe", "main.py"],
+                [sys.executable, "main.py"],
                 check=True
             )
 
