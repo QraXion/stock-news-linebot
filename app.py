@@ -38,6 +38,29 @@ price_fetcher = StockPriceFetcher()
 technical_analyzer = TechnicalAnalyzer()
 
 
+def run_main_py_with_logs():
+    print("開始執行 main.py", flush=True)
+
+    process = subprocess.Popen(
+        [sys.executable, "-u", "main.py"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace"
+    )
+
+    for line in process.stdout:
+        print(line, end="", flush=True)
+
+    return_code = process.wait()
+
+    if return_code != 0:
+        raise Exception(f"main.py 執行失敗，return code: {return_code}")
+
+    print("main.py 執行完成", flush=True)
+
+
 def get_main_menu():
 
     return QuickReply(
@@ -272,13 +295,10 @@ def api_today_recommendations():
 
 @app.route("/api/analysis/run", methods=["POST"])
 def api_run_analysis():
-    print("收到 Web /api/analysis/run 請求，開始重新執行 main.py")
+    print("收到 Web /api/analysis/run 請求，開始重新執行 main.py", flush=True)
 
     try:
-        subprocess.run(
-            [sys.executable, "-u", "main.py"],
-            check=True
-        )
+        run_main_py_with_logs()
 
         with open(
             "data/recommendation_results.json",
@@ -294,8 +314,8 @@ def api_run_analysis():
         })
 
     except Exception as e:
-        print("Web 即時分析失敗")
-        print(e)
+        print("Web 即時分析失敗", flush=True)
+        print(e, flush=True)
 
         return jsonify({
             "status": "error",
@@ -307,23 +327,18 @@ def api_run_analysis():
 @app.route("/rerun")
 def rerun_analysis():
 
-    print("收到 /rerun 請求，開始重新執行 main.py")
+    print("收到 /rerun 請求，開始重新執行 main.py", flush=True)
 
     try:
-        subprocess.run(
-            [sys.executable, "-u", "main.py"],
-            check=True
-        )
-
-        print("main.py 執行完成")
+        run_main_py_with_logs()
 
         return "分析已重新執行完成，請回到 /today 查看最新推薦"
 
-    except subprocess.CalledProcessError as e:
-        print("main.py 執行失敗")
-        print(e)
+    except Exception as e:
+        print("main.py 執行失敗", flush=True)
+        print(e, flush=True)
 
-        return "重新執行分析失敗，請檢查終端機錯誤訊息"
+        return "重新執行分析失敗，請檢查 Render Logs 錯誤訊息"
 
 
 @app.route("/callback", methods=["POST"])
@@ -346,7 +361,7 @@ def handle_message(event):
 
     user_message = event.message.text.strip()
 
-    print(f"使用者 ID：{event.source.user_id}")
+    print(f"使用者 ID：{event.source.user_id}", flush=True)
 
     if user_message == "今日推薦":
 
@@ -377,10 +392,7 @@ def handle_message(event):
         )
 
         try:
-            subprocess.run(
-                [sys.executable, "-u", "main.py"],
-                check=True
-            )
+            run_main_py_with_logs()
 
             with open(
                 "data/today_top_recommendation.txt",
