@@ -1,10 +1,11 @@
 import os
 from dotenv import load_dotenv
-from flask import Flask, request, abort
+from flask import Flask, request, abort, jsonify
 import json
 import subprocess
 import sys
 
+from flask_cors import CORS
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -21,6 +22,7 @@ from utils.technical_analyzer import TechnicalAnalyzer
 
 load_dotenv()
 app = Flask(__name__)
+CORS(app)
 
 # =========================
 # LINE Bot 設定
@@ -236,6 +238,70 @@ def stock_detail(stock_id):
             return "<br>".join(lines)
 
     return f"找不到股票代號：{stock_id}"
+
+
+@app.route("/api/recommendations/today", methods=["GET"])
+def api_today_recommendations():
+    try:
+        with open(
+            "data/recommendation_results.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+            recommendations = json.load(f)
+
+        return jsonify({
+            "status": "success",
+            "data": recommendations
+        })
+
+    except FileNotFoundError:
+        return jsonify({
+            "status": "error",
+            "message": "目前尚未產生今日推薦結果",
+            "data": []
+        }), 404
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "data": []
+        }), 500
+
+
+@app.route("/api/analysis/run", methods=["POST"])
+def api_run_analysis():
+    print("收到 Web /api/analysis/run 請求，開始重新執行 main.py")
+
+    try:
+        subprocess.run(
+            [sys.executable, "-u", "main.py"],
+            check=True
+        )
+
+        with open(
+            "data/recommendation_results.json",
+            "r",
+            encoding="utf-8"
+        ) as f:
+            recommendations = json.load(f)
+
+        return jsonify({
+            "status": "success",
+            "message": "即時分析完成",
+            "data": recommendations
+        })
+
+    except Exception as e:
+        print("Web 即時分析失敗")
+        print(e)
+
+        return jsonify({
+            "status": "error",
+            "message": str(e),
+            "data": []
+        }), 500
 
 
 @app.route("/rerun")
