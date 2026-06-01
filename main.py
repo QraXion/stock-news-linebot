@@ -215,11 +215,17 @@ def main():
 
         stock_sentiment_results.append(news)
 
+        matched_stock_text = "、".join(
+            [
+                f"{stock.get('stock_id')} {stock.get('stock_name')}"
+                for stock in enriched_stocks
+            ]
+        )
+
         print(f"新聞：{news['title']}")
         print(f"事件類型：{news['event_type']}")
-        print(f"事件標籤：{news['event_tags']}")
-        print(f"情緒分析：{sentiment_result}")
-        print(f"匹配股票：{enriched_stocks}")
+        print(f"情緒分析：{sentiment_result.get('sentiment')}")
+        print(f"匹配股票：{matched_stock_text}")
         print("-" * 50)
 
     # 6. 儲存原始新聞
