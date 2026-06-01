@@ -198,19 +198,38 @@ def main():
     for stock in ranked_stocks:
         stock["analysis_date"] = analysis_date
 
-    with open(
-        "data/recommendation_results.json",
-        "w",
-        encoding="utf-8"
-    ) as f:
-        json.dump(
-            ranked_stocks,
-            f,
-            ensure_ascii=False,
-            indent=4
-        )
+    if len(ranked_stocks) > 0:
+        with open(
+            "data/recommendation_results.json",
+            "w",
+            encoding="utf-8"
+        ) as f:
+            json.dump(
+                ranked_stocks,
+                f,
+                ensure_ascii=False,
+                indent=4
+            )
 
-    print("推薦結果已儲存到 data/recommendation_results.json")
+        print("推薦結果已儲存到 data/recommendation_results.json")
+
+    else:
+        if os.path.exists("data/recommendation_results.json"):
+            print("本次沒有符合門檻的股票，保留上一份推薦結果，不覆蓋 recommendation_results.json")
+        else:
+            with open(
+                "data/recommendation_results.json",
+                "w",
+                encoding="utf-8"
+            ) as f:
+                json.dump(
+                    [],
+                    f,
+                    ensure_ascii=False,
+                    indent=4
+                )
+
+            print("本次沒有符合門檻的股票，且沒有舊資料，因此建立空的 recommendation_results.json")
     
     top_message_lines = []
 
