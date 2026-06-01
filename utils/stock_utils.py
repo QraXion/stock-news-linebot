@@ -1,66 +1,46 @@
 import csv
 import json
 import os
+import re
 
 
 def load_stock_alias():
-
     alias_path = "data/stock_alias.json"
 
     if not os.path.exists(alias_path):
         return {}
 
-    with open(
-        alias_path,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(alias_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_stock_blacklist():
-
     blacklist_path = "data/stock_blacklist.json"
 
     if not os.path.exists(blacklist_path):
         return []
 
-    with open(
-        blacklist_path,
-        "r",
-        encoding="utf-8"
-    ) as f:
+    with open(blacklist_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def load_stock_list(csv_path="data/full_stock_list.csv"):
-
     stock_list = []
 
-    with open(
-        csv_path,
-        "r",
-        encoding="utf-8-sig",
-        newline=""
-    ) as f:
-
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
 
         for row in reader:
-
-            stock_info = {
+            stock_list.append({
                 "stock_id": str(row["stock_id"]),
                 "stock_name": row["stock_name"],
                 "market": row["market"]
-            }
-
-            stock_list.append(stock_info)
+            })
 
     return stock_list
 
 
 def is_taiwan_stock_news(news):
-
     title = news["title"] if news.get("title") else ""
     category = news["category"] if news.get("category") else ""
     summary = news["summary"] if news.get("summary") else ""
@@ -94,15 +74,16 @@ def is_taiwan_stock_news(news):
         "增資",
         "配息",
         "除息",
-        "Q1",
-        "Q2",
-        "Q3",
-        "Q4",
-        "-TW",
         "董事會",
         "AI",
         "伺服器",
-        "半導體"
+        "半導體",
+        "-TW",
+        "-TWO",
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4"
     ]
 
     for keyword in taiwan_stock_keywords:
@@ -113,46 +94,54 @@ def is_taiwan_stock_news(news):
 
 
 def apply_stock_alias(text):
-
     aliases = load_stock_alias()
 
     for alias, real_name in aliases.items():
-
         if alias in text:
             text += f" {real_name}"
 
     return text
 
 
-def normalize_stock_name(stock_name):
+def extract_stock_ids_from_text(text):
+    stock_ids = set()
 
-    if not stock_name:
-        return ""
-
-    remove_words = [
-        "股份有限公司",
-        "有限公司",
-        "公司",
-        "控股",
-        "科技",
-        "電子",
-        "工業",
-        "精密",
-        "材料",
-        "生技",
-        "光電"
+    patterns = [
+        r"\((\d{4})-TW\)",
+        r"\((\d{4})-TWO\)",
+        r"（(\d{4})-TW）",
+        r"（(\d{4})-TWO）",
+        r"(\d{4})-TW",
+        r"(\d{4})-TWO"
     ]
 
-    normalized_name = stock_name
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
 
-    for word in remove_words:
-        normalized_name = normalized_name.replace(word, "")
+        for stock_id in matches:
+            stock_ids.add(stock_id)
 
-    return normalized_name.strip()
+    return stock_ids
 
 
-def calculate_stock_match_score(stock_name, title, summary, content):
+def is_short_name_false_positive(stock_name, text, stock_list):
+    if len(stock_name) >= 3:
+        return False
 
+    for other_stock in stock_list:
+        other_name = other_stock["stock_name"]
+
+        if other_name == stock_name:
+            continue
+
+        if len(other_name) > len(stock_name):
+            if stock_name in other_name and other_name in text:
+                return True
+
+    return False
+
+
+def calculate_stock_match_score(stock_name, title, summary, content, stock_list):
     score = 0
 
     if not stock_name:
@@ -166,46 +155,59 @@ def calculate_stock_match_score(stock_name, title, summary, content):
     if stock_name in blacklist:
         return 0
 
-    normalized_name = normalize_stock_name(stock_name)
-
-    candidate_names = [stock_name]
-
-    if normalized_name and normalized_name != stock_name:
-        candidate_names.append(normalized_name)
-
     full_text = f"{title} {summary} {content}"
     content_head = content[:300]
 
-    for name in candidate_names:
+    if is_short_name_false_positive(stock_name, full_text, stock_list):
+        return 0
 
-        if len(name) < 2:
-            continue
+    if stock_name in title:
+        score += 10
 
-        if name in title:
-            score += 10
+    if stock_name in summary:
+        score += 5
 
-        if name in summary:
-            score += 5
+    if stock_name in content_head:
+        score += 3
 
-        if name in content_head:
-            score += 3
+    appear_count = full_text.count(stock_name)
 
-        appear_count = full_text.count(name)
-
-        if appear_count >= 2:
-            score += 2
-        elif appear_count == 1:
-            score += 1
+    if appear_count >= 2:
+        score += 2
+    elif appear_count == 1:
+        score += 1
 
     return score
 
 
+def find_stocks_by_stock_id(text, stock_list):
+    stock_ids = extract_stock_ids_from_text(text)
+
+    matched_stocks = []
+
+    for stock in stock_list:
+        if stock["stock_id"] in stock_ids:
+            matched_stocks.append({
+                "stock_id": stock["stock_id"],
+                "stock_name": stock["stock_name"],
+                "market": stock["market"],
+                "match_score": 100
+            })
+
+    return matched_stocks
+
+
 def find_related_stocks(title, summary, content, stock_list):
+    full_text = f"{title} {summary} {content}"
+
+    id_matched_stocks = find_stocks_by_stock_id(full_text, stock_list)
+
+    if len(id_matched_stocks) > 0:
+        return id_matched_stocks[:5]
 
     scored_stocks = []
 
     for stock in stock_list:
-
         stock_id = stock["stock_id"]
         stock_name = stock["stock_name"]
 
@@ -213,20 +215,19 @@ def find_related_stocks(title, summary, content, stock_list):
             stock_name,
             title,
             summary,
-            content
+            content,
+            stock_list
         )
 
         if score <= 0:
             continue
 
-        scored_stock = {
+        scored_stocks.append({
             "stock_id": stock_id,
             "stock_name": stock_name,
             "market": stock["market"],
             "match_score": score
-        }
-
-        scored_stocks.append(scored_stock)
+        })
 
     scored_stocks.sort(
         key=lambda x: x["match_score"],
@@ -236,15 +237,13 @@ def find_related_stocks(title, summary, content, stock_list):
     filtered_stocks = []
 
     for stock in scored_stocks:
-
-        if stock["match_score"] >= 8:
+        if stock["match_score"] >= 10:
             filtered_stocks.append(stock)
 
     return filtered_stocks[:5]
 
 
 def match_stocks_for_news(news, stock_list):
-
     if not is_taiwan_stock_news(news):
         return []
 
