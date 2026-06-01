@@ -3,7 +3,8 @@ import os
 from datetime import datetime
 from crawler.cnyes_crawler import CnyesCrawler
 from crawler.stock_list_crawler import StockListCrawler
-from utils.stock_utils import load_stock_list, match_stocks_for_news
+from utils.stock_utils import load_stock_list
+from utils.stock_matcher import StockMatcher
 from models.sentiment_analyzer import SentimentAnalyzer
 from models.event_classifier import EventClassifier
 from recommender.stock_recommender import StockRecommender
@@ -107,6 +108,7 @@ def main():
     print(f"股票清單載入成功，共 {len(stock_list)} 檔股票")
 
     # 3. 初始化模組
+    stock_matcher = StockMatcher(stock_list)
     sentiment_analyzer = SentimentAnalyzer()
     event_classifier = EventClassifier()
     price_fetcher = StockPriceFetcher()
@@ -132,10 +134,7 @@ def main():
 
     for news in news_list:
 
-        matched_stocks = match_stocks_for_news(
-            news,
-            stock_list
-        )
+        matched_stocks = stock_matcher.match(news)
 
         if len(matched_stocks) == 0:
             print(f"新聞：{news['title']}")
