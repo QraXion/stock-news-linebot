@@ -17,6 +17,7 @@ def load_stock_alias():
     ) as f:
         return json.load(f)
 
+
 def load_stock_blacklist():
 
     blacklist_path = "data/stock_blacklist.json"
@@ -29,8 +30,8 @@ def load_stock_blacklist():
         "r",
         encoding="utf-8"
     ) as f:
-
         return json.load(f)
+
 
 def load_stock_list(csv_path="data/full_stock_list.csv"):
 
@@ -69,12 +70,17 @@ def is_taiwan_stock_news(news):
 
     taiwan_stock_keywords = [
         "台股",
+        "個股",
         "焦點股",
         "台股盤前",
         "台股盤後",
-        "營收",
+        "股東會",
         "法說",
+        "營收",
         "EPS",
+        "股息",
+        "股利",
+        "殖利率",
         "漲停",
         "跌停",
         "上市",
@@ -86,10 +92,17 @@ def is_taiwan_stock_news(news):
         "毛利率",
         "收購",
         "增資",
+        "配息",
+        "除息",
         "Q1",
         "Q2",
         "Q3",
-        "Q4"
+        "Q4",
+        "-TW",
+        "董事會",
+        "AI",
+        "伺服器",
+        "半導體"
     ]
 
     for keyword in taiwan_stock_keywords:
@@ -111,6 +124,33 @@ def apply_stock_alias(text):
     return text
 
 
+def normalize_stock_name(stock_name):
+
+    if not stock_name:
+        return ""
+
+    remove_words = [
+        "股份有限公司",
+        "有限公司",
+        "公司",
+        "控股",
+        "科技",
+        "電子",
+        "工業",
+        "精密",
+        "材料",
+        "生技",
+        "光電"
+    ]
+
+    normalized_name = stock_name
+
+    for word in remove_words:
+        normalized_name = normalized_name.replace(word, "")
+
+    return normalized_name.strip()
+
+
 def calculate_stock_match_score(stock_name, title, summary, content):
 
     score = 0
@@ -118,37 +158,44 @@ def calculate_stock_match_score(stock_name, title, summary, content):
     if not stock_name:
         return score
 
-    # 股票名稱太短，容易誤判
     if len(stock_name) < 2:
         return score
-    
+
     blacklist = load_stock_blacklist()
 
     if stock_name in blacklist:
         return 0
 
-    # 1. 標題命中：最重要
-    if stock_name in title:
-        score += 10
+    normalized_name = normalize_stock_name(stock_name)
 
-    # 2. 摘要命中：中等重要
-    if stock_name in summary:
-        score += 5
+    candidate_names = [stock_name]
 
-    # 3. 內文前 150 字命中：仍有參考價值
-    content_head = content[:150]
+    if normalized_name and normalized_name != stock_name:
+        candidate_names.append(normalized_name)
 
-    if stock_name in content_head:
-        score += 3
-
-    # 4. 全文命中：最低權重
     full_text = f"{title} {summary} {content}"
-    appear_count = full_text.count(stock_name)
+    content_head = content[:300]
 
-    if appear_count >= 2:
-        score += 2
-    elif appear_count == 1:
-        score += 1
+    for name in candidate_names:
+
+        if len(name) < 2:
+            continue
+
+        if name in title:
+            score += 10
+
+        if name in summary:
+            score += 5
+
+        if name in content_head:
+            score += 3
+
+        appear_count = full_text.count(name)
+
+        if appear_count >= 2:
+            score += 2
+        elif appear_count == 1:
+            score += 1
 
     return score
 
@@ -186,15 +233,13 @@ def find_related_stocks(title, summary, content, stock_list):
         reverse=True
     )
 
-    # 只保留分數夠高的股票
     filtered_stocks = []
 
     for stock in scored_stocks:
 
-        if stock["match_score"] >= 10:
+        if stock["match_score"] >= 8:
             filtered_stocks.append(stock)
 
-    # 最多保留 5 檔
     return filtered_stocks[:5]
 
 
