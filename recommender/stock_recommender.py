@@ -154,12 +154,16 @@ class StockRecommender:
                         "stock_name": stock_name,
                         "total_score": 0,
                         "news_count": 0,
+
+                        "raw_recommend_score": 0,
                         "recommend_score": 0,
                         "recommend_level": "觀察",
+
                         "sentiment_score": 0,
                         "technical_score": 0,
                         "event_score": 0,
                         "risk_score": 0,
+
                         "recommend_reasons": [],
                         "technical_info": stock.get("technical_info", {}),
                         "news_reasons": []
@@ -175,24 +179,31 @@ class StockRecommender:
                     stock_summary[stock_id]["total_score"] -= 1
 
                 stock_summary[stock_id]["news_count"] += 1
-                stock_summary[stock_id]["recommend_score"] += stock.get(
+
+                stock_summary[stock_id]["raw_recommend_score"] += stock.get(
                     "recommend_score", 0
                 )
-                stock_summary[stock_id]["recommend_level"] = stock.get(
-                    "recommend_level", "觀察"
-                )
+
                 stock_summary[stock_id]["sentiment_score"] += stock.get(
                     "sentiment_score", 0
                 )
+
                 stock_summary[stock_id]["technical_score"] += stock.get(
                     "technical_score", 0
                 )
+
                 stock_summary[stock_id]["event_score"] += stock.get(
                     "event_score", 0
                 )
+
                 stock_summary[stock_id]["risk_score"] += stock.get(
                     "risk_score", 0
                 )
+
+                current_technical_info = stock.get("technical_info", {})
+
+                if current_technical_info:
+                    stock_summary[stock_id]["technical_info"] = current_technical_info
 
                 for reason in stock.get("recommend_reasons", []):
                     if reason not in stock_summary[stock_id]["recommend_reasons"]:
@@ -210,22 +221,33 @@ class StockRecommender:
                 })
 
         result = list(stock_summary.values())
-        
+
         for stock in result:
 
-            score = stock.get("recommend_score", 0)
             news_count = stock.get("news_count", 0)
+            raw_score = stock.get("raw_recommend_score", 0)
+
+            if news_count > 0:
+                average_score = raw_score / news_count
+            else:
+                average_score = 0
+
+            hot_bonus = min(news_count // 2, 3)
+
+            final_score = average_score + hot_bonus
+
+            stock["recommend_score"] = round(final_score, 1)
 
             if news_count >= 2:
-                stock["recommend_score"] += 1
-
                 if "多篇新聞共同提及" not in stock["recommend_reasons"]:
-                    stock["recommend_reasons"].append("多篇新聞共同提及")
+                    stock["recommend_reasons"].append(
+                        "多篇新聞共同提及"
+                    )
 
-            if score >= 6:
+            if stock["recommend_score"] >= 8:
                 stock["recommend_level"] = "強烈推薦"
 
-            elif score >= 4:
+            elif stock["recommend_score"] >= 5:
                 stock["recommend_level"] = "值得關注"
 
             else:
