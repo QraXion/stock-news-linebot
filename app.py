@@ -299,18 +299,15 @@ def api_stock_detail(stock_id):
         found_stock = find_recommendation_stock(stock_id)
         technical_result = calculate_technical_result(stock_id)
 
-        if technical_result is None:
-            return jsonify({
-                "status": "error",
-                "message": f"找不到股票代號 {stock_id} 的股價或技術資料",
-                "data": None
-            }), 404
-
         if found_stock is not None:
             data = {
                 "stock_id": found_stock.get("stock_id"),
                 "stock_name": found_stock.get("stock_name"),
-                "data_source": "recommendation_with_technical",
+                "data_source": (
+                    "recommendation_with_technical"
+                    if technical_result is not None
+                    else "recommendation_only"
+                ),
                 "recommend_score": found_stock.get("recommend_score"),
                 "recommend_level": found_stock.get("recommend_level"),
                 "news_count": found_stock.get("news_count"),
@@ -324,7 +321,12 @@ def api_stock_detail(stock_id):
                 "technical_analysis": technical_result
             }
 
-        else:
+            return jsonify({
+                "status": "success",
+                "data": data
+            })
+
+        if technical_result is not None:
             data = {
                 "stock_id": stock_id,
                 "stock_name": stock_id,
@@ -342,10 +344,16 @@ def api_stock_detail(stock_id):
                 "technical_analysis": technical_result
             }
 
+            return jsonify({
+                "status": "success",
+                "data": data
+            })
+
         return jsonify({
-            "status": "success",
-            "data": data
-        })
+            "status": "error",
+            "message": f"找不到股票代號 {stock_id} 的推薦資料、股價或技術資料",
+            "data": None
+        }), 404
 
     except Exception as e:
         return jsonify({
