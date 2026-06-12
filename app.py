@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 from flask import Flask, request, abort, jsonify
@@ -20,7 +21,9 @@ from linebot.models import (
 from utils.stock_price_fetcher import StockPriceFetcher
 from utils.technical_analyzer import TechnicalAnalyzer
 
+
 load_dotenv()
+
 app = Flask(__name__)
 CORS(app)
 
@@ -35,6 +38,7 @@ technical_analyzer = TechnicalAnalyzer()
 
 
 def run_main_py_with_logs():
+
     print("開始執行 main.py", flush=True)
 
     process = subprocess.Popen(
@@ -58,16 +62,33 @@ def run_main_py_with_logs():
 
 
 def get_main_menu():
+
     return QuickReply(
         items=[
-            QuickReplyButton(action=MessageAction(label="今日推薦", text="今日推薦")),
-            QuickReplyButton(action=MessageAction(label="即時推薦", text="即時推薦")),
-            QuickReplyButton(action=MessageAction(label="分數區間", text="分數區間"))
+            QuickReplyButton(
+                action=MessageAction(
+                    label="今日推薦",
+                    text="今日推薦"
+                )
+            ),
+            QuickReplyButton(
+                action=MessageAction(
+                    label="即時推薦",
+                    text="即時推薦"
+                )
+            ),
+            QuickReplyButton(
+                action=MessageAction(
+                    label="分數區間",
+                    text="分數區間"
+                )
+            )
         ]
     )
 
 
 def translate_sentiment(sentiment):
+
     mapping = {
         "positive": "正面",
         "neutral": "中性",
@@ -78,6 +99,7 @@ def translate_sentiment(sentiment):
 
 
 def calculate_technical_result(stock_id):
+
     price_info = price_fetcher.get_stock_price(stock_id)
     technical_info = technical_analyzer.analyze(stock_id)
 
@@ -146,6 +168,7 @@ def calculate_technical_result(stock_id):
 
 
 def build_technical_message(stock_id):
+
     result = calculate_technical_result(stock_id)
 
     if result is None:
@@ -155,6 +178,7 @@ def build_technical_message(stock_id):
     technical_info = result["technical_info"]
 
     lines = []
+
     lines.append(f"個股技術分析：{stock_id}")
     lines.append("")
     lines.append(f"技術推薦分數：{result['technical_score']}")
@@ -178,6 +202,7 @@ def build_technical_message(stock_id):
 
 
 def build_score_range_message():
+
     return (
         "分數區間說明\n\n"
         "新聞推薦分數：\n"
@@ -193,7 +218,36 @@ def build_score_range_message():
     )
 
 
+def read_today_recommendation_message():
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    try:
+        with open(
+            "data/today_top_recommendation.txt",
+            "r",
+            encoding="utf-8"
+        ) as f:
+            message = f.read()
+
+    except FileNotFoundError:
+        return (
+            "目前尚未產生今日推薦結果。\n"
+            "請先使用「即時推薦」功能。"
+        )
+
+    if today not in message:
+        return (
+            "目前尚未產生今日推薦結果。\n"
+            "系統偵測到目前資料不是今日最新分析。\n\n"
+            "請先使用「即時推薦」功能。"
+        )
+
+    return message
+
+
 def load_recommendation_results():
+
     try:
         with open(
             "data/recommendation_results.json",
@@ -207,6 +261,7 @@ def load_recommendation_results():
 
 
 def find_recommendation_stock(stock_id):
+
     stocks = load_recommendation_results()
 
     for stock in stocks:
@@ -223,22 +278,15 @@ def home():
 
 @app.route("/today")
 def today_recommendation():
-    try:
-        with open(
-            "data/today_top_recommendation.txt",
-            "r",
-            encoding="utf-8"
-        ) as f:
-            message = f.read()
 
-    except FileNotFoundError:
-        message = "目前尚未產生今日推薦結果，請先使用「即時推薦」功能"
+    message = read_today_recommendation_message()
 
     return message.replace("\n", "<br>")
 
 
 @app.route("/stock/<stock_id>")
 def stock_detail(stock_id):
+
     found_stock = find_recommendation_stock(stock_id)
 
     if found_stock is None:
@@ -277,6 +325,7 @@ def stock_detail(stock_id):
 
 @app.route("/api/recommendations/today", methods=["GET"])
 def api_today_recommendations():
+
     try:
         recommendations = load_recommendation_results()
 
@@ -295,6 +344,7 @@ def api_today_recommendations():
 
 @app.route("/api/stocks/<stock_id>", methods=["GET"])
 def api_stock_detail(stock_id):
+
     try:
         found_stock = find_recommendation_stock(stock_id)
         technical_result = calculate_technical_result(stock_id)
@@ -365,6 +415,7 @@ def api_stock_detail(stock_id):
 
 @app.route("/api/analysis/run", methods=["POST"])
 def api_run_analysis():
+
     print("收到 Web /api/analysis/run 請求，開始重新執行 main.py", flush=True)
 
     try:
@@ -390,10 +441,12 @@ def api_run_analysis():
 
 @app.route("/rerun")
 def rerun_analysis():
+
     print("收到 /rerun 請求，開始重新執行 main.py", flush=True)
 
     try:
         run_main_py_with_logs()
+
         return "分析已重新執行完成，請回到 /today 查看最新推薦"
 
     except Exception as e:
@@ -405,6 +458,7 @@ def rerun_analysis():
 
 @app.route("/callback", methods=["POST"])
 def callback():
+
     signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
 
@@ -419,21 +473,14 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+
     user_message = event.message.text.strip()
 
     print(f"使用者 ID：{event.source.user_id}", flush=True)
 
     if user_message == "今日推薦":
-        try:
-            with open(
-                "data/today_top_recommendation.txt",
-                "r",
-                encoding="utf-8"
-            ) as f:
-                message = f.read()
 
-        except FileNotFoundError:
-            message = "目前尚未產生今日推薦結果，請先使用「即時推薦」功能"
+        message = read_today_recommendation_message()
 
         line_bot_api.reply_message(
             event.reply_token,
@@ -444,9 +491,14 @@ def handle_message(event):
         )
 
     elif user_message == "即時推薦":
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="正在進行即時推薦分析，請稍候...")
+            TextSendMessage(
+                text=
+                "即時推薦已開始執行。\n"
+                "系統正在抓取新聞、進行情緒分析與技術分析，請稍候約 1~5 分鐘。"
+            )
         )
 
         try:
@@ -476,6 +528,7 @@ def handle_message(event):
             )
 
     elif user_message == "分數區間":
+
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
@@ -485,6 +538,7 @@ def handle_message(event):
         )
 
     elif user_message.isdigit() and len(user_message) == 4:
+
         stock_id = user_message.strip()
         found_stock = find_recommendation_stock(stock_id)
 
